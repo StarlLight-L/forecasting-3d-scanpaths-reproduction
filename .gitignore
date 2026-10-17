@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.egg-info/
+data/
+runs/
+tmp/
+.venv-adt/
+third_party/
+weights/
+.idea/
+.DS_Store
+*.py[cod]
+.env
+.env.*
+!.env.example

@@ -1,0 +1,69 @@
+{
+  "purpose": "Single-recording integration/overfit test; no held-out evaluation",
+  "training_windows": 59,
+  "batch_size": 2,
+  "steps": 30,
+  "first_training_loss": 3.7101452350616455,
+  "last_training_loss": 0.48247289657592773,
+  "final_batch_eval_mode_loss": 0.35902953147888184,
+  "prediction_shape": [
+    2,
+    10,
+    4
+  ],
+  "finite_predictions": true,
+  "losses": [
+    3.7101452350616455,
+    27.030567169189453,
+    11.444792747497559,
+    6.645862579345703,
+    1.8008530139923096,
+    2.0385899543762207,
+    3.937349796295166,
+    3.777651786804199,
+    2.7634220123291016,
+    2.064483404159546,
+    1.551436424255371,
+    1.5808281898498535,
+    1.0100938081741333,
+    0.8602914810180664,
+    0.8391197919845581,
+    1.0287320613861084,
+    1.2387456893920898,
+    1.1700963973999023,
+    1.0529035329818726,
+    1.0060062408447266,
+    0.7172068357467651,
+    0.4311034083366394,
+    0.4611203074455261,
+    0.4604874849319458,
+    0.5441413521766663,
+    0.5387081503868103,
+    0.5855704545974731,
+    0.692415714263916,
+    0.521057665348053,
+    0.48247289657592773
+  ],
+  "tests_passed": 14,
+  "python_environment": ".venv-adt (Python 3.12)",
+  "torch": "2.8.0",
+  "feature_shape": [
+    78,
+    256,
+    768
+  ],
+  "exported_prediction_shape": [
+    59,
+    10,
+    4
+  ],
+  "world_roundtrip_verified": true,
+  "dino_weight_sha256": "0b8b82f85de91b424aded121c7e1dcc2b7bc6d0adeea651bf73a13307fad8c73",
+  "dino_commit": "7764ea0f912e53c92e82eb78a2a1631e92725fc8",
+  "limitations": [
+    "10-second sample only",
+    "0.05m clustering threshold is an assumption",
+    "GT trajectory instead of SLAM",
+    "no held-out evaluation"
+  ]
+}

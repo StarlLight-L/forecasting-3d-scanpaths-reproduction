@@ -1,0 +1,31 @@
+{
+  "status": "synthetic pipeline verified; ADT results not reproduced",
+  "torch": "2.8.0",
+  "numpy": "2.0.2",
+  "device": "cpu",
+  "tests_passed": 13,
+  "smoke_config": "configs/paper.json",
+  "smoke_epochs": 3,
+  "prediction_shape": [
+    2,
+    10,
+    4
+  ],
+  "validated": [
+    "SE(3) round trip",
+    "future information isolation",
+    "distance metric known answers",
+    "backpropagation",
+    "small batch overfit",
+    "checkpoint reload",
+    "world-coordinate prediction export",
+    "memory mapped cache",
+    "frozen backbone contract with mock"
+  ],
+  "not_validated": [
+    "actual DINOv2 weights/extraction",
+    "actual ADT data/preprocessing",
+    "paper numerical results",
+    "EYE/TDE/MultiMatch"
+  ]
+}

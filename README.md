@@ -193,3 +193,38 @@ OMP_NUM_THREADS=2 python -m scanpaths extract --aligned data/adt_sample/sequence
 下载其他单序列可给 `download_adt.py` 指定 `--sequence NAME`；正式训练仍需独立的 train / val / test 视频。`.venv-adt` 的实际依赖记录在 `requirements-adt-lock.txt`；完整复现还需数据清单与显式的 DINOv2 仓库／权重，pip 不会下载这些资源。
 
 官方接口依据：[ADT 数据格式](https://facebookresearch.github.io/projectaria_tools/docs/open_datasets/aria_digital_twin_dataset/data_format)、[眼动坐标转换](https://facebookresearch.github.io/projectaria_tools/docs/data_utilities/core_code_snippets/eye_gaze_code)。
+
+## 省空间的完整划分批处理
+
+`scripts/prepare_adt_batches.py` 沿用 Scanpath1 的逐条处理思路，但训练模型仍是本仓库的 Ryan Transformer。使用已有 `data/adt_split.json`（`{"train": [...], "val": [...], "test": [...]}`），不会随机重划分，也不会自动选择全部236条。先核对计划输出为147/18/19；这是用户固定划分，不代表作者官方名单。
+
+以下命令在仓库根目录执行，Windows PowerShell 和 Linux 均可使用。先安装本项目、projectaria-tools，并准备官方 DINOv2 源码与 ViT-B/14 权重。RTX 5090 还需使用支持该 GPU 的 PyTorch/CUDA 构建；先确认原样例能在 CUDA 上运行。
+
+```shell
+python scripts/prepare_adt_batches.py --plan-only
+python scripts/prepare_adt_batches.py --cleanup
+```
+
+默认清单 `data/adt_download_urls-2.json`，划分 `data/adt_split.json`，输出 `data/adt_prepared`。可用 `--cdn-file`、`--split-file`、`--output`、`--dino-repo`、`--weights` 覆盖。输出必须是新的专用目录，不能指向已有原始数据目录。独立 Aria 环境可以用 `--aria-python` 指定其 Python。
+
+每次默认处理最多10条新录像；反复运行同一命令继续。一次处理全部剩余录像：
+
+```shell
+python scripts/prepare_adt_batches.py --cleanup --all
+```
+
+流程：下载并校验 VRS/GT → 导出 → fixation 聚合 → DINOv2 → 校验维度、有限值、有效20点窗口 → 保存SHA256收据 → 发布缓存 → 再次校验 → 清理自己的 `staging` 原始文件及图片。失败即停止，已完成缓存保留并在重跑时验证。中断的单条特征会重新提取；下载不提供字节级断点续传。不要同时对同一输出目录运行两个任务。
+
+特征长期保存在 `features/`；校验成功后才允许 `--cleanup` 清理带所有权标记的工作区。外部已有的14条样例不删除、不自动导入，可能需要重新下载这些录像。每条开始前检查下载量加20 GiB工作余量，可用 `--reserve-gb` 增大；这不是导出峰值保证，全部特征仍需磁盘空间。不要将下载URL清单提交Git。
+
+计划固定划分、源文件校验和、权重和预处理代码；可刷新过期URL，但不能混用改变过的参数/代码。仍采用本仓库原有原始RGB、GT眼动深度和距离阈值 `--threshold 0.05`，没有移植Scanpath1的去畸变/速度阈值预处理。新增的是存储调度，不代表消除了现有论文复现差异。
+
+只有全部缓存通过校验后才生成 `manifest.json`。随后运行：
+
+```shell
+python -m scanpaths train --config configs/paper.json --manifest data/adt_prepared/manifest.json --output runs/adt_full --device cuda
+python -m scanpaths evaluate --checkpoint runs/adt_full/best.pt --manifest data/adt_prepared/manifest.json --output runs/adt_full/test.json --device cuda
+python -m scanpaths evaluate --checkpoint runs/adt_full/best.pt --manifest data/adt_prepared/manifest.json --output runs/adt_full/baseline_last.json --baseline last --device cuda
+```
+
+当前训练仍为3 epochs，不自动启动，也不支持训练断点恢复；批处理可恢复与训练可恢复是两件事。

@@ -12,7 +12,7 @@ class ModelConfig:
     feature_dim: int = 768
     dim: int = 256
     heads: int = 8
-    ff_dim: int = 1024
+    ff_dim: int = 2048
     layers: int = 2
     dropout: float = 0.1
     use_video: bool = True
@@ -98,7 +98,7 @@ class ScanpathTransformer(nn.Module):
         return self.output(decoded[:, c.observed:])
 
 
-def forecasting_loss(prediction, target, position_weight=1.0, duration_weight=1.0):
+def forecasting_loss(prediction, target, position_weight=1.5, duration_weight=1.0):
     position = nn.functional.mse_loss(prediction[..., :3], target[..., :3])
     duration = nn.functional.mse_loss(prediction[..., 3], target[..., 3])
     return position_weight * position + duration_weight * duration

@@ -126,8 +126,8 @@ with torch.no_grad():
 | 观测与预测长度、图像尺寸、特征、隐藏维度 | 正文指定 10/10、224²、DINOv2-B、256 |
 | Encoder / decoder 层数、主模型双向注意力 | 正文指定各 2 层 |
 | 优化器、学习率、weight decay、epochs | 正文指定 AdamW、2e-4、1e-2、3 |
-| Heads、FFN、dropout、batch size | 正文未指定；当前 8、1024、0.1、32 |
-| MSE 权重 λ1 / λ2 | 正文未指定；当前 1 / 1 |
+| Heads、FFN、dropout、batch size | 补充材料 §7.1 指定 8、2048、0.1、128；两个训练配置均已对齐 |
+| MSE 权重 λ1 / λ2 | 补充材料 §7.1 指定 1.5 / 1；两个训练配置均已对齐 |
 | 归一化顺序、激活、初始化 | 实现选择：post-norm、ReLU、矩阵 Xavier 初始化 |
 | 未来 query 的时间编码 | 按正文仅给观测轨迹加固定时间编码；未来位置由独立 query 表示 |
 | 单图+pose 消融 | 保留全部历史 pose；正文对该消融具体 token 数描述不足 |
@@ -151,7 +151,7 @@ with torch.no_grad():
 - `scanpaths/__main__.py`：命令行
 - `tests/test_core.py`：坐标系、无未来泄漏、指标、梯度和小样本过拟合测试
 
-来源：用户提供论文 §3–4；[作者主页](https://fkryan.github.io/)（本次访问对应条目仅列 paper 链接），[DINOv2 官方代码](https://github.com/facebookresearch/dinov2)。补充材料下载未成功，因此所有未确认细节均以上表标注。
+来源：用户提供论文 §3–4；[作者主页](https://fkryan.github.io/)（本次访问对应条目仅列 paper 链接），[DINOv2 官方代码](https://github.com/facebookresearch/dinov2)。已核对补充材料 §7.1 的模型与训练参数；其他复现边界仍以上表及共享数据说明为准。
 
 
 ## 已接通的真实 ADT 样例（2026-10-11）
@@ -254,3 +254,5 @@ python -m scanpaths evaluate --checkpoint runs/ryan_shared236/best.pt --manifest
 ```
 
 这是236条共享数据协议下的Ryan方法对照实验，不是原论文184条结果的精确重现。本地Scanpath1窗口实现已核对；若服务器Scanpath1版本修改过窗口策略，仍需对照其窗口数/索引确认。
+
+共享236条训练仍使用 `configs/shared_scanpath1.json`。FFN=2048、batch size=128、位置损失权重=1.5，其余数据/窗口/指标规则不变。此前FFN=1024的checkpoint只能按其保存的旧配置评估，不能载入新的2048结构继续训练；新实验请使用新的输出目录，例如 `runs/ryan_shared236_ff2048`。

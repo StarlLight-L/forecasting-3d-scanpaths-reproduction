@@ -5,7 +5,7 @@
     "feature_dim": 768,
     "dim": 256,
     "heads": 8,
-    "ff_dim": 1024,
+    "ff_dim": 2048,
     "layers": 2,
     "dropout": 0.1,
     "use_video": true,
@@ -15,10 +15,10 @@
   },
   "training": {
     "epochs": 3,
-    "batch_size": 32,
+    "batch_size": 128,
     "lr": 0.0002,
     "weight_decay": 0.01,
-    "position_weight": 1.0,
+    "position_weight": 1.5,
     "duration_weight": 1.0,
     "seed": 42
   },

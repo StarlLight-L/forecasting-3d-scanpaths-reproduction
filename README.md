@@ -232,3 +232,25 @@ python scripts/prepare_adt_batches.py --cleanup --all
 全部完成后生成 `feature_manifest.json`（`split: unassigned`），仅为特征清单，不能直接用于训练。随后需明确独立train/val/test，且sample与对应完整录像必须在同一集合，避免内容泄漏。如果在首次准备时已确定划分，可传 `--split-file`，格式为 `{"train": [...], "val": [...], "test": [...]}`，必须覆盖清单全部录像恰好一次，此时完成后生成可训练的 `manifest.json`。旧184条划分会报错，不会静默漏掉52条。不要在既有计划中途改变划分。
 
 准备脚本不自动启动训练。当前训练仍为3 epochs，且不支持训练断点恢复；数据准备可续跑不等于训练可续跑。
+
+## 直接复用服务器上的 Scanpath1 缓存
+
+如果已有 `/home/xinman/scanpath/datasets/adt_all_prepared/manifest.json`，不要再运行下载/提取脚本。清单中的相对路径以清单所在目录解析，附加 `recording_id`、`split_source` 不影响读取；沿用其既有划分，不复制或修改共享缓存。
+
+新增 `configs/shared_scanpath1.json` 保留Ryan模型/训练设置，但使用Scanpath1窗口规则：10+10 fixation、有效连续段、不超过10秒；训练步长1，验证/测试在有效候选上取非重叠窗口。时间戳优先于duration求和。窗口设置随checkpoint保存，evaluate/predict自动读取，旧checkpoint仍使用旧规则。不支持单录像 `target_range` 划分。
+
+先在服务器仓库根目录只读检查所有缓存及划分（会扫描大文件，可能需要等待）：
+
+```shell
+python scripts/check_shared_data.py --manifest /home/xinman/scanpath/datasets/adt_all_prepared/manifest.json
+```
+
+检查236条、三个集合、sample无跨集合泄漏、时间戳/特征格式及有限值，并输出各集合窗口数。它不替代原处理流水线的SHA256收据校验。通过后：
+
+```shell
+python -m scanpaths train --config configs/shared_scanpath1.json --manifest /home/xinman/scanpath/datasets/adt_all_prepared/manifest.json --output runs/ryan_shared236 --device cuda
+python -m scanpaths evaluate --checkpoint runs/ryan_shared236/best.pt --manifest /home/xinman/scanpath/datasets/adt_all_prepared/manifest.json --output runs/ryan_shared236/test.json --device cuda
+python -m scanpaths evaluate --checkpoint runs/ryan_shared236/best.pt --manifest /home/xinman/scanpath/datasets/adt_all_prepared/manifest.json --output runs/ryan_shared236/baseline_last.json --baseline last --device cuda
+```
+
+这是236条共享数据协议下的Ryan方法对照实验，不是原论文184条结果的精确重现。本地Scanpath1窗口实现已核对；若服务器Scanpath1版本修改过窗口策略，仍需对照其窗口数/索引确认。

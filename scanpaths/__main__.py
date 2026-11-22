@@ -56,7 +56,7 @@ def main():
         device = choose_device(args.device)
         model = load_model(args.checkpoint, device)
         c = model.config
-        loader = DataLoader(ScanpathDataset(args.manifest,args.split,c.observed,c.future), batch_size=16)
+        loader = DataLoader(ScanpathDataset(args.manifest,args.split,c.observed,c.future, **model.data_settings), batch_size=16)
         output = Path(args.output)
         output.parent.mkdir(parents=True, exist_ok=True)
         if args.command == 'evaluate':

@@ -8,7 +8,11 @@ from .geometry import to_canonical, canonical_poses, validate_transforms
 
 
 class ScanpathDataset(Dataset):
-    def __init__(self, manifest, split, observed=10, future=10, stride=None):
+    def __init__(self, manifest, split, observed=10, future=10, stride=None, window_protocol="legacy", max_window_seconds=10.0):
+        if window_protocol not in ('legacy', 'scanpath1'):
+            raise ValueError('Unknown window protocol')
+        if max_window_seconds <= 0 or not np.isfinite(max_window_seconds):
+            raise ValueError('Invalid maximum window duration')
         self.observed, self.future = observed, future
         path = Path(manifest).resolve()
         items = json.loads(path.read_text())
@@ -24,23 +28,33 @@ class ScanpathDataset(Dataset):
             if source in seen:
                 raise ValueError(f"Duplicate recording across manifest entries: {source}")
             seen.add(source)
+            if 'target_range' in entry:
+                raise ValueError('Temporal target_range manifests are not supported by this Ryan loader')
             if entry['split'] != split:
                 continue
             if source.is_dir():
                 data = {k: np.load(source / (k + '.npy'), mmap_mode='r', allow_pickle=False)
                         for k in ['fixations_world', 'world_camera', 'global_features', 'dense_features']}
-                if (source/'segment_ids.npy').exists():
-                    data['segment_ids'] = np.load(source/'segment_ids.npy', allow_pickle=False)
+                for key in ('segment_ids', 'fixation_start_times', 'fixation_end_times'):
+                    if (source/(key+'.npy')).exists():
+                        data[key] = np.load(source/(key+'.npy'), allow_pickle=False)
             else:
                 with np.load(source, allow_pickle=False) as f:
                     data = {k: f[k] for k in f.files}
             validate_sequence(data)
             seq_id = len(self.sequences)
             self.sequences.append(data)
-            for start in range(0, len(data['fixations_world']) - observed - future + 1, stride):
-                ids = data.get('segment_ids')
-                if ids is None or np.all(ids[start:start+observed+future] == ids[start]):
-                    self.index.append((seq_id, start))
+            if window_protocol == 'scanpath1':
+                next_start = 0
+                for start in shared_window_starts(data, observed + future, max_window_seconds):
+                    if start >= next_start:
+                        self.index.append((seq_id, start))
+                        next_start = start + stride
+            else:
+                for start in range(0, len(data['fixations_world']) - observed - future + 1, stride):
+                    ids = data.get('segment_ids')
+                    if ids is None or np.all(ids[start:start+observed+future] == ids[start]):
+                        self.index.append((seq_id, start))
         if not self.index:
             raise ValueError(f"No complete windows in split {split!r}")
 
@@ -77,6 +91,20 @@ def validate_sequence(s):
     if not finite or (s['fixations_world'][:, 3] <= 0).any():
         raise ValueError("Non-finite values or non-positive durations")
     validate_transforms(s['world_camera'])
+    if 'segment_ids' in s:
+        ids = s['segment_ids']
+        if ids.shape != (n,) or ids.dtype.kind not in 'iu' or (np.diff(ids) < 0).any():
+            raise ValueError('segment_ids must be an ordered integer vector of length N')
+    timing = ('fixation_start_times', 'fixation_end_times')
+    if any(k in s for k in timing):
+        if not all(k in s for k in timing):
+            raise ValueError('Both fixation timestamp arrays are required')
+        a, b = (s[k] for k in timing)
+        if (a.shape != (n,) or b.shape != (n,) or not np.isfinite(a).all()
+                or not np.isfinite(b).all() or (b <= a).any()
+                or (np.diff(a) <= 0).any() or (b[:-1] > a[1:] + 1e-6).any()):
+            raise ValueError('Invalid fixation timestamp intervals')
+
 
 
 def cluster_fixations(points, timestamps, threshold, sample_period=1/30):
@@ -111,3 +139,18 @@ def fixation_segment_ids(points, timestamps, ends, sample_period=1/30):
     if len(valid)>1:
         breaks[1:] = (~valid[1:]) | (~valid[:-1]) | (np.diff(timestamps)>1.5*sample_period)
     return np.cumsum(breaks)[ends].astype(np.int64)
+
+
+def shared_window_starts(data, length, max_seconds=10.0):
+    """Match Scanpath1's contiguous-run, elapsed-time candidate enumeration."""
+    n = len(data['fixations_world'])
+    ids = data.get('segment_ids', np.zeros(n, dtype=np.int64))
+    bounds = np.r_[0, np.flatnonzero(np.diff(ids)) + 1, n]
+    cumulative = np.r_[0., np.cumsum(data['fixations_world'][:, 3], dtype=np.float64)]
+    for left, right in zip(bounds[:-1], bounds[1:]):
+        for start in range(int(left), int(right)-length+1):
+            stop = start + length
+            seconds = (data['fixation_end_times'][stop-1] - data['fixation_start_times'][start]
+                       if 'fixation_end_times' in data else cumulative[stop]-cumulative[start])
+            if seconds <= max_seconds + 1e-6:
+                yield start

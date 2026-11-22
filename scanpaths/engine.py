@@ -48,7 +48,7 @@ def train(config, manifest, output, device='auto'):
     seed_everything(config['training']['seed'])
     device = choose_device(device)
     c, settings = ModelConfig(**config['model']), config['training']
-    datasets = {split: ScanpathDataset(manifest, split, c.observed, c.future) for split in ['train','val']}
+    datasets = {split: ScanpathDataset(manifest, split, c.observed, c.future, **config.get("data", {})) for split in ['train','val']}
     loaders = {split: DataLoader(data, batch_size=settings['batch_size'], shuffle=split=='train') for split,data in datasets.items()}
     model = ScanpathTransformer(c).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=settings['lr'], weight_decay=settings['weight_decay'])
@@ -86,4 +86,5 @@ def load_model(checkpoint, device):
     state = torch.load(checkpoint, map_location=device, weights_only=True)
     model = ScanpathTransformer(ModelConfig(**state['config']['model'])).to(device)
     model.load_state_dict(state['model'])
+    model.data_settings = state['config'].get('data', {})
     return model.eval()

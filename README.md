@@ -194,37 +194,41 @@ OMP_NUM_THREADS=2 python -m scanpaths extract --aligned data/adt_sample/sequence
 
 官方接口依据：[ADT 数据格式](https://facebookresearch.github.io/projectaria_tools/docs/open_datasets/aria_digital_twin_dataset/data_format)、[眼动坐标转换](https://facebookresearch.github.io/projectaria_tools/docs/data_utilities/core_code_snippets/eye_gaze_code)。
 
-## 省空间的完整划分批处理
+## 全部236条数据：省空间批处理
 
-`scripts/prepare_adt_batches.py` 沿用 Scanpath1 的逐条处理思路，但训练模型仍是本仓库的 Ryan Transformer。使用已有 `data/adt_split.json`（`{"train": [...], "val": [...], "test": [...]}`），不会随机重划分，也不会自动选择全部236条。先核对计划输出为147/18/19；这是用户固定划分，不代表作者官方名单。
+`scripts/prepare_adt_batches.py` 读取 CDN 清单中的**每一条**录像，不筛场景、不排除sample、不截取184条。用户当前清单236条；实际数量以输入清单为准。沿用Scanpath1逐条下载、提取、校验后清理的方式，模型仍为本仓库Ryan Transformer。
 
-以下命令在仓库根目录执行，Windows PowerShell 和 Linux 均可使用。先安装本项目、projectaria-tools，并准备官方 DINOv2 源码与 ViT-B/14 权重。RTX 5090 还需使用支持该 GPU 的 PyTorch/CUDA 构建；先确认原样例能在 CUDA 上运行。
+默认不读取旧的 `adt_split.json`，不自动按比例划分。先完成全部数据准备，训练/验证/测试划分以后显式指定。
+
+准备本项目环境、projectaria-tools、官方DINOv2源码和ViT-B/14权重后，在仓库根目录运行（PowerShell/Linux均可）：
 
 ```shell
+git pull origin main
 python scripts/prepare_adt_batches.py --plan-only
+```
+
+应显示 `sequences: 236`、`unassigned: 236`。清单默认 `data/adt_download_urls-2.json`，可用 `--cdn-file` 更换。默认输出为新的 `data/adt_all_prepared`，不要复用旧184条计划目录；已有数据不会自动迁移或删除。
+
+每次最多处理10条新录像，重复命令继续：
+
+```shell
 python scripts/prepare_adt_batches.py --cleanup
 ```
 
-默认清单 `data/adt_download_urls-2.json`，划分 `data/adt_split.json`，输出 `data/adt_prepared`。可用 `--cdn-file`、`--split-file`、`--output`、`--dino-repo`、`--weights` 覆盖。输出必须是新的专用目录，不能指向已有原始数据目录。独立 Aria 环境可以用 `--aria-python` 指定其 Python。
-
-每次默认处理最多10条新录像；反复运行同一命令继续。一次处理全部剩余录像：
+或者一直处理直到清单全部完成：
 
 ```shell
 python scripts/prepare_adt_batches.py --cleanup --all
 ```
 
-流程：下载并校验 VRS/GT → 导出 → fixation 聚合 → DINOv2 → 校验维度、有限值、有效20点窗口 → 保存SHA256收据 → 发布缓存 → 再次校验 → 清理自己的 `staging` 原始文件及图片。失败即停止，已完成缓存保留并在重跑时验证。中断的单条特征会重新提取；下载不提供字节级断点续传。不要同时对同一输出目录运行两个任务。
+每条只下载 `main_vrs` 和 `main_groundtruth`，不下载depth/MPS。执行下载校验 → 导出 → fixation聚合 → DINOv2特征 → 形状/有限值/有效20点窗口校验 → SHA256收据 → 发布缓存 → 再校验 → 清理自己的原始视频、ZIP、中间图片。全部特征始终保留。失败停止，重跑验证并跳过完成的缓存，未完成的单条特征重新提取；下载不是字节级断点续传。
 
-特征长期保存在 `features/`；校验成功后才允许 `--cleanup` 清理带所有权标记的工作区。外部已有的14条样例不删除、不自动导入，可能需要重新下载这些录像。每条开始前检查下载量加20 GiB工作余量，可用 `--reserve-gb` 增大；这不是导出峰值保证，全部特征仍需磁盘空间。不要将下载URL清单提交Git。
+`--cleanup` 只删除带所有权标记的 `staging` 工作区，不碰外部已有下载或14条实验。已有外部缓存暂不自动导入，可能重复下载。脚本检查下一条下载量加20 GiB工作余量，可用 `--reserve-gb` 调大；不保证导出峰值，全部特征仍需实际磁盘空间。不能同时运行两个任务操作同一输出目录。
 
-计划固定划分、源文件校验和、权重和预处理代码；可刷新过期URL，但不能混用改变过的参数/代码。仍采用本仓库原有原始RGB、GT眼动深度和距离阈值 `--threshold 0.05`，没有移植Scanpath1的去畸变/速度阈值预处理。新增的是存储调度，不代表消除了现有论文复现差异。
+路径可用 `--output`、`--dino-repo`、`--weights` 覆盖；独立Aria环境可用 `--aria-python` 指定。计划锁定录像名单、源SHA1、DINO权重SHA256、预处理代码和参数。签名下载链接过期可以更新，但不能改变名单/源文件；不要上传下载JSON到GitHub。
 
-只有全部缓存通过校验后才生成 `manifest.json`。随后运行：
+这里移植的是下载与存储流程，仍使用Ryan仓库现有的原始RGB、GT眼动深度和距离阈值 `--threshold 0.05`。没有自动换成Scanpath1的去畸变与速度阈值规则。236条全量实验也不是论文原始184条实验。
 
-```shell
-python -m scanpaths train --config configs/paper.json --manifest data/adt_prepared/manifest.json --output runs/adt_full --device cuda
-python -m scanpaths evaluate --checkpoint runs/adt_full/best.pt --manifest data/adt_prepared/manifest.json --output runs/adt_full/test.json --device cuda
-python -m scanpaths evaluate --checkpoint runs/adt_full/best.pt --manifest data/adt_prepared/manifest.json --output runs/adt_full/baseline_last.json --baseline last --device cuda
-```
+全部完成后生成 `feature_manifest.json`（`split: unassigned`），仅为特征清单，不能直接用于训练。随后需明确独立train/val/test，且sample与对应完整录像必须在同一集合，避免内容泄漏。如果在首次准备时已确定划分，可传 `--split-file`，格式为 `{"train": [...], "val": [...], "test": [...]}`，必须覆盖清单全部录像恰好一次，此时完成后生成可训练的 `manifest.json`。旧184条划分会报错，不会静默漏掉52条。不要在既有计划中途改变划分。
 
-当前训练仍为3 epochs，不自动启动，也不支持训练断点恢复；批处理可恢复与训练可恢复是两件事。
+准备脚本不自动启动训练。当前训练仍为3 epochs，且不支持训练断点恢复；数据准备可续跑不等于训练可续跑。

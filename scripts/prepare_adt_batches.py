@@ -1,4 +1,4 @@
-"""Prepare a fixed Ryan split sequentially, with verified caches and owned scratch."""
+"""Prepare every CDN recording sequentially, with verified caches and owned scratch."""
 import argparse
 from contextlib import contextmanager
 import hashlib
@@ -61,7 +61,12 @@ def lock(root):
 
 
 def make_plan(cdn, split, weights, threshold):
-    if set(split) != {'train', 'val', 'test'}:
+    if not cdn.get('sequences'):
+        raise ValueError('Empty CDN sequence list')
+    supplied_split = split is not None
+    if split is None:
+        split = {'unassigned': sorted(cdn['sequences'])}
+    if supplied_split and set(split) != {'train', 'val', 'test'}:
         raise ValueError('Split file needs train, val and test lists')
     records, seen = [], set()
     for part, names in split.items():
@@ -77,10 +82,12 @@ def make_plan(cdn, split, weights, threshold):
             records.append(dict(name=name, split=part, assets={
                 k: {f: assets[k][f] for f in ('sha1sum', 'file_size_bytes')}
                 for k in ('main_vrs', 'main_groundtruth')}))
+    if seen != set(cdn['sequences']):
+        raise ValueError('Split file must cover ALL CDN recordings exactly once; do not use the old 184-recording split')
     # Pin implementation as well as parameters; never mix caches after code changes.
     sources = ['scripts/export_adt.py', 'scripts/download_adt.py', 'scanpaths/data.py',
                'scanpaths/features.py', 'scanpaths/__main__.py']
-    return dict(version=1, records=records, threshold=threshold,
+    return dict(version=2, selection="all_cdn_sequences", records=records, threshold=threshold,
                 weights_sha256=digest(weights), sources={s: digest(ROOT/s) for s in sources},
                 exact_author_split=False)
 
@@ -95,7 +102,7 @@ def check_cache(cache, part):
     ids = arrays['segment_ids']
     if ids.shape != (n,) or not np.issubdtype(ids.dtype, np.integer):
         raise ValueError('Invalid segment IDs')
-    stride = 1 if part == 'train' else 20
+    stride = 20 if part in ('val', 'test') else 1
     windows = sum(bool(np.all(ids[i:i+20] == ids[i])) for i in range(0, n-19, stride))
     if not windows:
         raise ValueError('No valid 10+10 windows; retaining raw files for investigation')
@@ -163,8 +170,8 @@ def process(record, plan, root, args):
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--cdn-file', default='data/adt_download_urls-2.json')
-    p.add_argument('--split-file', default='data/adt_split.json')
-    p.add_argument('--output', default='data/adt_prepared')
+    p.add_argument('--split-file', help='Optional explicit train/val/test lists covering ALL CDN recordings; no automatic split')
+    p.add_argument('--output', default='data/adt_all_prepared')
     p.add_argument('--dino-repo', default='third_party/dinov2')
     p.add_argument('--weights', default='weights/dinov2_vitb14_pretrain.pth')
     p.add_argument('--aria-python', default=sys.executable)
@@ -179,18 +186,20 @@ def main():
     if args.limit < 1 or not math.isfinite(args.threshold) or args.threshold <= 0 or not math.isfinite(args.reserve_gb) or args.reserve_gb < 0:
         p.error('Invalid limit, threshold or reserve')
     for key in ('cdn_file', 'split_file', 'dino_repo', 'weights', 'output'):
-        setattr(args, key, Path(getattr(args, key)).resolve())
+        if getattr(args, key) is not None:
+            setattr(args, key, Path(getattr(args, key)).resolve())
     root = args.output
     root.mkdir(parents=True, exist_ok=True)
     with lock(root):
-        plan = make_plan(read(args.cdn_file), read(args.split_file), args.weights, args.threshold)
+        plan = make_plan(read(args.cdn_file), read(args.split_file) if args.split_file else None, args.weights, args.threshold)
         if (root/'plan.json').exists():
             if read(root/'plan.json') != plan:
                 raise ValueError('Plan changed; use original split/settings/code or a fresh output directory')
         elif any(x.name != '.pipeline.lock' for x in root.iterdir()):
             raise ValueError('New output directory must be empty')
         save(root/'plan.json', plan)
-        print({s: sum(r['split'] == s for r in plan['records']) for s in ('train','val','test')}, flush=True)
+        print(dict(sequences=len(plan['records']), splits={s: sum(r['split'] == s for r in plan['records'])
+              for s in ('train','val','test','unassigned')}), flush=True)
         if args.plan_only:
             return
         if not (args.dino_repo/'hubconf.py').is_file():
@@ -206,8 +215,11 @@ def main():
             completed.append(dict(path='features/'+record['name'], split=record['split']))
         save(root/'progress.json', dict(verified=len(completed), total=len(plan['records'])))
         if len(completed) == len(plan['records']):
-            save(root/'manifest.json', completed)
-            print(f'All caches verified. Training manifest: {root / "manifest.json"}')
+            filename = 'manifest.json' if args.split_file else 'feature_manifest.json'
+            save(root/filename, completed)
+            print(f'All caches verified: {root / filename}')
+            if not args.split_file:
+                print('All recordings prepared. No train/val/test split assigned; do not train on this inventory.')
         else:
             print('Batch finished. Repeat the same command for the next batch.')
 

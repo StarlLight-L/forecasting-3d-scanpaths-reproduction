@@ -71,3 +71,35 @@ def test_plan_pins_split_and_ignores_url_refresh(tmp_path):
     assert make_plan(cdn,split,weights,0.1)!=plan
     with pytest.raises(ValueError, match='Duplicate'):
         make_plan(cdn,dict(train=['a'],val=['a'],test=['c']),weights,0.05)
+
+
+def test_all_236_sequences_without_split(tmp_path):
+    weights=tmp_path/'weights'
+    weights.write_bytes(b'weights')
+    names=[f'Office_{i}' for i in range(234)] + ['Apartment_seq1', 'Apartment_seq1_10s_sample']
+    asset=dict(sha1sum='abc', file_size_bytes=100, download_url='secret')
+    cdn={'sequences':{n:{k:dict(asset) for k in ('main_vrs','main_groundtruth')} for n in names}}
+    plan=make_plan(cdn,None,weights,0.05)
+    assert len(plan['records'])==236
+    assert {r['name'] for r in plan['records']}==set(names)
+    assert {r['split'] for r in plan['records']}=={'unassigned'}
+    assert 'secret' not in json.dumps(plan)
+    old=dict(train=names[:147],val=names[147:165],test=names[165:184])
+    with pytest.raises(ValueError,match='ALL CDN'):
+        make_plan(cdn,old,weights,0.05)
+
+
+def test_all_inventory_not_training_manifest(tmp_path, monkeypatch):
+    import scripts.prepare_adt_batches as pipeline
+    weights=tmp_path/'weights'; weights.write_bytes(b'weights')
+    cdn=tmp_path/'cdn.json'
+    asset=dict(sha1sum='abc',file_size_bytes=100)
+    save(cdn,dict(sequences={n:{k:asset for k in ('main_vrs','main_groundtruth')} for n in ('a','b','c')}))
+    repo=tmp_path/'dino'; repo.mkdir(); (repo/'hubconf.py').touch()
+    root=tmp_path/'out'
+    monkeypatch.setattr(pipeline,'process',lambda *args: None)
+    monkeypatch.setattr('sys.argv',['prepare','--cdn-file',str(cdn),'--weights',str(weights),
+                                  '--output',str(root),'--dino-repo',str(repo),'--all'])
+    pipeline.main()
+    assert len(json.loads((root/'feature_manifest.json').read_text()))==3
+    assert not (root/'manifest.json').exists()
